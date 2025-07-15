@@ -1,105 +1,79 @@
 package server;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.SQLException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
-import db.DbUtil;
 import service.UrlService;
 import service.UserService;
 
 public class Main {
 
+    private static final Logger logger = LoggerFactory.getLogger(Main.class);
+    private static final UrlService urlService = new UrlService();
+    private static final UserService userService = new UserService();
+
     public static void main(String[] args) throws IOException {
         int port = 8000;
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
-        UrlService urlService = new UrlService();
-
-        // Serve static files from /web
         server.createContext("/", new StaticFileHandler("web"));
 
-        // POST /shorten → supports optional customCode & username
         server.createContext("/shorten", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
             }
 
-            InputStream input = exchange.getRequestBody();
-            String body = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-            String[] params = body.split("&");
+            String body = new String(exchange.getRequestBody().readAllBytes());
+            String[] pairs = body.split("&");
+            String url = null, username = null, custom = null;
 
-            String originalUrl = null;
-            String customCode = null;
-            String username = null;
-
-            for (String param : params) {
-                String[] pair = param.split("=");
-                if (pair.length != 2) continue;
-
-                String key = URLDecoder.decode(pair[0], "UTF-8");
-                String value = URLDecoder.decode(pair[1], "UTF-8");
-
-                switch (key) {
-                    case "url" -> originalUrl = value;
-                    case "customCode" -> customCode = value;
-                    case "username" -> username = value;
+            for (String pair : pairs) {
+                String[] kv = pair.split("=");
+                if (kv.length == 2) {
+                    String key = kv[0];
+                    String value = URLDecoder.decode(kv[1], "UTF-8");
+                    switch (key) {
+                        case "url" -> url = value;
+                        case "username" -> username = value;
+                        case "customCode" -> custom = value;
+                    }
                 }
             }
 
-            if (originalUrl == null || originalUrl.isEmpty()) {
+            if (url == null) {
                 exchange.sendResponseHeaders(400, -1);
                 return;
             }
 
-            Integer userId = null;
-            if (username != null && !username.isEmpty()) {
-                try {
-                    userId = new UserService(DbUtil.getConnection()).getUserId(username);
-                } catch (SQLException ex) {
-                }
-            }
+            String code = urlService.shortenUrl(url, username, custom);
+            String shortUrl = "http://localhost:8000/r/" + code;
+            byte[] response = shortUrl.getBytes();
 
-            try {
-                String code = null;
-                try {
-                    code = urlService.shortenUrl(originalUrl, userId, customCode);
-                } catch (SQLException ex) {
-                }
-                String shortUrl = "http://localhost:8000/r/" + code;
-                byte[] response = shortUrl.getBytes();
-                exchange.sendResponseHeaders(200, response.length);
-                exchange.getResponseBody().write(response);
-            } catch (IllegalArgumentException e) {
-                byte[] response = e.getMessage().getBytes();
-                exchange.sendResponseHeaders(409, response.length); // Conflict
-                exchange.getResponseBody().write(response);
-            } finally {
-                exchange.close();
-            }
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
         });
 
-        // GET /r/{code} → Redirect
         server.createContext("/r", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
             }
 
-            String path = exchange.getRequestURI().getPath(); // e.g., /r/abc123
-            String[] parts = path.split("/");
+            String[] parts = exchange.getRequestURI().getPath().split("/");
             if (parts.length < 3) {
-                exchange.sendResponseHeaders(400, -1); // Bad Request
+                exchange.sendResponseHeaders(400, -1);
                 return;
             }
 
@@ -107,24 +81,77 @@ public class Main {
             String originalUrl = urlService.getOriginalUrl(code);
 
             if (originalUrl == null) {
-                String response = "Short URL not found";
-                exchange.sendResponseHeaders(404, response.length());
-                exchange.getResponseBody().write(response.getBytes());
+                byte[] response = "Short URL not found".getBytes();
+                exchange.sendResponseHeaders(404, response.length);
+                exchange.getResponseBody().write(response);
                 exchange.close();
                 return;
             }
 
             exchange.getResponseHeaders().add("Location", originalUrl);
-            exchange.sendResponseHeaders(302, -1); // Redirect
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+
+        server.createContext("/register", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+
+            String body = new String(exchange.getRequestBody().readAllBytes());
+            String[] kv = body.split("&");
+            String username = "", password = "";
+
+            for (String pair : kv) {
+                String[] p = pair.split("=");
+                if (p.length == 2) {
+                    if (p[0].equals("username")) username = URLDecoder.decode(p[1], "UTF-8");
+                    if (p[0].equals("password")) password = URLDecoder.decode(p[1], "UTF-8");
+                }
+            }
+
+            boolean success = userService.registerUser(username, password);
+            String msg = success ? "User registered" : "User already exists";
+
+            byte[] res = msg.getBytes();
+            exchange.sendResponseHeaders(200, res.length);
+            exchange.getResponseBody().write(res);
+            exchange.close();
+        });
+
+        server.createContext("/login", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+
+            String body = new String(exchange.getRequestBody().readAllBytes());
+            String[] kv = body.split("&");
+            String username = "", password = "";
+
+            for (String pair : kv) {
+                String[] p = pair.split("=");
+                if (p.length == 2) {
+                    if (p[0].equals("username")) username = URLDecoder.decode(p[1], "UTF-8");
+                    if (p[0].equals("password")) password = URLDecoder.decode(p[1], "UTF-8");
+                }
+            }
+
+            boolean success = userService.login(username, password);
+            String msg = success ? "Login successful" : "Invalid credentials";
+
+            byte[] res = msg.getBytes();
+            exchange.sendResponseHeaders(200, res.length);
+            exchange.getResponseBody().write(res);
             exchange.close();
         });
 
         server.setExecutor(null);
         server.start();
-        System.out.println("Server started on http://localhost:" + port);
+        logger.info("Server started at http://localhost:" + port);
     }
 
-    // Static file handler
     static class StaticFileHandler implements HttpHandler {
         private final String rootDir;
 
@@ -134,13 +161,11 @@ public class Main {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            String requestedPath = exchange.getRequestURI().getPath();
-            if (requestedPath.equals("/")) {
-                requestedPath = "/index.html";
-            }
+            String requested = exchange.getRequestURI().getPath();
+            if (requested.equals("/")) requested = "/index.html";
 
-            Path filePath = Path.of(rootDir, requestedPath);
-            if (!Files.exists(filePath)) {
+            Path file = Path.of(rootDir, requested);
+            if (!Files.exists(file)) {
                 String notFound = "404 Not Found";
                 exchange.sendResponseHeaders(404, notFound.length());
                 exchange.getResponseBody().write(notFound.getBytes());
@@ -148,7 +173,7 @@ public class Main {
                 return;
             }
 
-            byte[] content = Files.readAllBytes(filePath);
+            byte[] content = Files.readAllBytes(file);
             exchange.sendResponseHeaders(200, content.length);
             exchange.getResponseBody().write(content);
             exchange.close();
