@@ -1,3 +1,4 @@
+service\UserService.class
 db\DbUtil.class
 server\Main$StaticFileHandler.class
 service\UrlService.class

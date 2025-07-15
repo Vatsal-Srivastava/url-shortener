@@ -1,17 +1,15 @@
 package service;
-
-import db.DbUtil;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.UUID;
 
+import db.DbUtil;
 public class UrlService {
-
+    public UrlService(Connection connection) {
+    }
     public String shortenUrl(String originalUrl, Integer userId) {
         String code = generateShortCode();
-
         try (Connection conn = DbUtil.getConnection()) {
             String sql = "INSERT INTO urls (short_code, original_url, created_by) VALUES (?, ?, ?)";
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -27,14 +25,11 @@ public class UrlService {
         } catch (SQLException e) {
             throw new RuntimeException("Failed to shorten URL", e);
         }
-
         return code;
     }
-
     private String generateShortCode() {
         return UUID.randomUUID().toString().substring(0, 6); // Short random code
     }
-
     public String getOriginalUrl(String code) {
     try (Connection conn = DbUtil.getConnection()) {
         String sql = "SELECT original_url FROM urls WHERE short_code = ?";
@@ -48,7 +43,6 @@ public class UrlService {
     } catch (SQLException e) {
         throw new RuntimeException("Error retrieving original URL", e);
     }
-
     return null; // not found
 }
 }
