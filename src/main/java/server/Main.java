@@ -18,10 +18,10 @@ public class Main {
 
         UrlService urlService = new UrlService();
 
-        // Serve frontend files
+        // Serve static files from /web
         server.createContext("/", new StaticFileHandler("web"));
 
-        // POST /shorten - Accepts a URL, returns short URL
+        // POST /shorten (anonymous)
         server.createContext("/shorten", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1); // Method Not Allowed
@@ -31,10 +31,10 @@ public class Main {
             InputStream input = exchange.getRequestBody();
             String body = new String(input.readAllBytes());
 
-            // Basic parsing (expects url=...)
+            // Simple parsing: url=http://example.com
             String url = body.split("=")[1];
 
-            String code = urlService.shortenUrl(url, null); // null = anonymous user
+            String code = urlService.shortenUrl(url, null); // anonymous user
             String shortUrl = "http://localhost:8000/r/" + code;
 
             byte[] response = shortUrl.getBytes();
@@ -43,20 +43,42 @@ public class Main {
             exchange.close();
         });
 
-        // GET /r/{code} - Redirect (placeholder for now)
+        // GET /r/{code} → Redirect shorten link
         server.createContext("/r", exchange -> {
-            String response = "Redirect endpoint (not yet implemented)";
-            exchange.sendResponseHeaders(200, response.length());
-            exchange.getResponseBody().write(response.getBytes());
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+
+            String path = exchange.getRequestURI().getPath(); // e.g., /r/abc123
+            String[] parts = path.split("/");
+            if (parts.length < 3) {
+                exchange.sendResponseHeaders(400, -1); // Bad Request
+                return;
+            }
+
+            String code = parts[2];
+            String originalUrl = urlService.getOriginalUrl(code);
+
+            if (originalUrl == null) {
+                String response = "Short URL not found";
+                exchange.sendResponseHeaders(404, response.length());
+                exchange.getResponseBody().write(response.getBytes());
+                exchange.close();
+                return;
+            }
+
+            exchange.getResponseHeaders().add("Location", originalUrl);
+            exchange.sendResponseHeaders(302, -1); // Redirect
             exchange.close();
         });
 
-        server.setExecutor(null); // Use default executor
+        server.setExecutor(null); // default executor
         server.start();
         System.out.println("Server started on http://localhost:" + port);
     }
 
-    // Serves static files from /web directory
+    // Static file handler (e.g., index.html, scripts, etc.)
     static class StaticFileHandler implements HttpHandler {
         private final String rootDir;
 
