@@ -1,9 +1,9 @@
 package server;
 
 import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
+import service.UrlService;
 
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -16,18 +16,34 @@ public class Main {
         int port = 8000;
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
-        // Serve static frontend files from /web directory
+        UrlService urlService = new UrlService();
+
+        // Serve frontend files
         server.createContext("/", new StaticFileHandler("web"));
 
-        // Placeholder route for shortening
+        // POST /shorten - Accepts a URL, returns short URL
         server.createContext("/shorten", exchange -> {
-            String response = "Shorten endpoint (not yet implemented)";
-            exchange.sendResponseHeaders(200, response.length());
-            exchange.getResponseBody().write(response.getBytes());
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1); // Method Not Allowed
+                return;
+            }
+
+            InputStream input = exchange.getRequestBody();
+            String body = new String(input.readAllBytes());
+
+            // Basic parsing (expects url=...)
+            String url = body.split("=")[1];
+
+            String code = urlService.shortenUrl(url, null); // null = anonymous user
+            String shortUrl = "http://localhost:8000/r/" + code;
+
+            byte[] response = shortUrl.getBytes();
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
             exchange.close();
         });
 
-        // Placeholder redirect handler
+        // GET /r/{code} - Redirect (placeholder for now)
         server.createContext("/r", exchange -> {
             String response = "Redirect endpoint (not yet implemented)";
             exchange.sendResponseHeaders(200, response.length());
@@ -35,12 +51,12 @@ public class Main {
             exchange.close();
         });
 
-        server.setExecutor(null);
+        server.setExecutor(null); // Use default executor
         server.start();
         System.out.println("Server started on http://localhost:" + port);
     }
 
-    // Static file handler
+    // Serves static files from /web directory
     static class StaticFileHandler implements HttpHandler {
         private final String rootDir;
 
