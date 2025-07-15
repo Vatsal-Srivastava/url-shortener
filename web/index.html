@@ -1,31 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>URL Shortener</title>
-  <script src="script.js" defer></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 500px;
-      margin: 40px auto;
-      padding: 20px;
-    }
-    input[type="text"], button {
-      width: 100%;
-      padding: 10px;
-      margin-top: 10px;
-    }
-    #result {
-      margin-top: 20px;
-      font-weight: bold;
-    }
+    body { font-family: Arial; max-width: 600px; margin: 30px auto; }
+    input, button { width: 100%; padding: 8px; margin: 6px 0; }
+    section { border: 1px solid #ccc; padding: 10px; margin-bottom: 20px; }
+    #result { color: green; font-weight: bold; margin-top: 10px; }
+    #error { color: red; font-weight: bold; }
   </style>
 </head>
 <body>
-  <h2>Shorten a URL</h2>
-  <input type="text" id="longUrl" placeholder="Enter long URL here" />
-  <button onclick="shorten()">Shorten</button>
-  <div id="result"></div>
+  <h1>URL Shortener</h1>
+
+  <section>
+    <h2>Register</h2>
+    <input type="text" id="regUser" placeholder="Username">
+    <input type="password" id="regPass" placeholder="Password">
+    <button onclick="register()">Register</button>
+    <div id="regMsg"></div>
+  </section>
+
+  <section>
+    <h2>Login</h2>
+    <input type="text" id="loginUser" placeholder="Username">
+    <input type="password" id="loginPass" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <div id="loginMsg"></div>
+  </section>
+
+  <section>
+    <h2>Shorten URL</h2>
+    <input type="text" id="url" placeholder="URL to shorten">
+    <input type="text" id="username" placeholder="Username (must be registered)">
+    <input type="text" id="customCode" placeholder="Custom Code (optional)">
+    <button onclick="shorten()">Shorten</button>
+    <div id="result"></div>
+    <div id="error"></div>
+  </section>
+
+  <script src="script.js"></script>
 </body>
 </html>

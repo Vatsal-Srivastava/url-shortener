@@ -1,48 +1,99 @@
 package service;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.UUID;
+import java.sql.Types;
+import java.util.Random;
 
 import db.DbUtil;
+
 public class UrlService {
-    public UrlService(Connection connection) {
-    }
-    public String shortenUrl(String originalUrl, Integer userId) {
-        String code = generateShortCode();
-        try (Connection conn = DbUtil.getConnection()) {
-            String sql = "INSERT INTO urls (short_code, original_url, created_by) VALUES (?, ?, ?)";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, code);
-                stmt.setString(2, originalUrl);
-                if (userId == null) {
-                    stmt.setNull(3, java.sql.Types.INTEGER);
-                } else {
-                    stmt.setInt(3, userId);
-                }
-                stmt.executeUpdate();
-            }
+    private static final String CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    private static final int CODE_LENGTH = 6;
+
+    private final Connection conn;
+
+    public UrlService() {
+        try {
+            this.conn = DbUtil.getConnection();
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to shorten URL", e);
+            throw new RuntimeException("Failed to connect to DB: " + e.getMessage());
         }
-        return code;
     }
-    private String generateShortCode() {
-        return UUID.randomUUID().toString().substring(0, 6); // Short random code
+
+    public String shortenUrl(String originalUrl, Integer userId, String customCode) throws SQLException {
+        String shortCode;
+
+        if (customCode != null && !customCode.isEmpty()) {
+            // Check if the custom code already exists
+            String checkSql = "SELECT COUNT(*) FROM urls WHERE short_code = ?";
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                checkStmt.setString(1, customCode);
+                ResultSet rs = checkStmt.executeQuery();
+                if (rs.next() && rs.getInt(1) > 0) {
+                    throw new IllegalArgumentException("Custom short code already in use.");
+                }
+            }
+            shortCode = customCode;
+        } else {
+            // Generate a new unique random code
+            shortCode = generateRandomCode();
+        }
+
+        String insertSql = "INSERT INTO urls (short_code, original_url, created_by) VALUES (?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+            stmt.setString(1, shortCode);
+            stmt.setString(2, originalUrl);
+            if (userId != null) {
+                stmt.setInt(3, userId);
+            } else {
+                stmt.setNull(3, Types.INTEGER);
+            }
+            stmt.executeUpdate();
+        }
+
+        return shortCode;
     }
-    public String getOriginalUrl(String code) {
-    try (Connection conn = DbUtil.getConnection()) {
+
+    public String getOriginalUrl(String shortCode) {
         String sql = "SELECT original_url FROM urls WHERE short_code = ?";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, code);
-            var rs = stmt.executeQuery();
+            stmt.setString(1, shortCode);
+            ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 return rs.getString("original_url");
             }
+        } catch (SQLException e) {
+            System.err.println("Error fetching original URL: " + e.getMessage());
         }
-    } catch (SQLException e) {
-        throw new RuntimeException("Error retrieving original URL", e);
+        return null;
     }
-    return null; // not found
-}
+
+    private String generateRandomCode() throws SQLException {
+        String code;
+        do {
+            code = randomString(CODE_LENGTH);
+        } while (codeExists(code));
+        return code;
+    }
+
+    private boolean codeExists(String code) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM urls WHERE short_code = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, code);
+            ResultSet rs = stmt.executeQuery();
+            return rs.next() && rs.getInt(1) > 0;
+        }
+    }
+
+    private String randomString(int length) {
+        Random random = new Random();
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(CHARSET.charAt(random.nextInt(CHARSET.length())));
+        }
+        return sb.toString();
+    }
 }
