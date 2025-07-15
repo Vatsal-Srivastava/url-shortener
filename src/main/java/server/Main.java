@@ -7,13 +7,11 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.SQLException;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
-import db.DbUtil;
 import service.UrlService;
 import service.UserService;
 
@@ -24,6 +22,7 @@ public class Main {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
         UrlService urlService = new UrlService();
+        UserService userService = new UserService();
 
         // Serve static files from /web
         server.createContext("/", new StaticFileHandler("web"));
@@ -47,8 +46,8 @@ public class Main {
                 String[] pair = param.split("=");
                 if (pair.length != 2) continue;
 
-                String key = URLDecoder.decode(pair[0], "UTF-8");
-                String value = URLDecoder.decode(pair[1], "UTF-8");
+                String key = URLDecoder.decode(pair[0], StandardCharsets.UTF_8);
+                String value = URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
 
                 switch (key) {
                     case "url" -> originalUrl = value;
@@ -63,26 +62,19 @@ public class Main {
             }
 
             Integer userId = null;
-            if (username != null && !username.isEmpty()) {
-                try {
-                    userId = new UserService(DbUtil.getConnection()).getUserId(username);
-                } catch (SQLException ex) {
-                }
-            }
+            // if (username != null && !username.isEmpty()) {
+            //     userId = userService.getUserId(username);
+            // }
 
             try {
-                String code = null;
-                try {
-                    code = urlService.shortenUrl(originalUrl, userId, customCode);
-                } catch (SQLException ex) {
-                }
+                String code = urlService.shortenUrl(originalUrl, username, customCode);
                 String shortUrl = "http://localhost:8000/r/" + code;
                 byte[] response = shortUrl.getBytes();
                 exchange.sendResponseHeaders(200, response.length);
                 exchange.getResponseBody().write(response);
             } catch (IllegalArgumentException e) {
                 byte[] response = e.getMessage().getBytes();
-                exchange.sendResponseHeaders(409, response.length); // Conflict
+                exchange.sendResponseHeaders(409, response.length);
                 exchange.getResponseBody().write(response);
             } finally {
                 exchange.close();
@@ -96,10 +88,10 @@ public class Main {
                 return;
             }
 
-            String path = exchange.getRequestURI().getPath(); // e.g., /r/abc123
+            String path = exchange.getRequestURI().getPath();
             String[] parts = path.split("/");
             if (parts.length < 3) {
-                exchange.sendResponseHeaders(400, -1); // Bad Request
+                exchange.sendResponseHeaders(400, -1);
                 return;
             }
 
@@ -115,7 +107,7 @@ public class Main {
             }
 
             exchange.getResponseHeaders().add("Location", originalUrl);
-            exchange.sendResponseHeaders(302, -1); // Redirect
+            exchange.sendResponseHeaders(302, -1);
             exchange.close();
         });
 
@@ -124,7 +116,6 @@ public class Main {
         System.out.println("Server started on http://localhost:" + port);
     }
 
-    // Static file handler
     static class StaticFileHandler implements HttpHandler {
         private final String rootDir;
 
