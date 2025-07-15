@@ -32,7 +32,12 @@ public class Main {
             String body = new String(input.readAllBytes());
 
             // Simple parsing: url=http://example.com
-            String url = body.split("=")[1];
+            String[] parts = body.split("=");
+            if (parts.length < 2) {
+                exchange.sendResponseHeaders(400, -1);
+                return;
+            }
+            String url = java.net.URLDecoder.decode(parts[1], "UTF-8");
 
             String code = urlService.shortenUrl(url, null); // anonymous user
             String shortUrl = "http://localhost:8000/r/" + code;
@@ -80,6 +85,7 @@ public class Main {
 
     // Static file handler (e.g., index.html, scripts, etc.)
     static class StaticFileHandler implements HttpHandler {
+
         private final String rootDir;
 
         public StaticFileHandler(String rootDir) {
@@ -89,7 +95,9 @@ public class Main {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String requestedPath = exchange.getRequestURI().getPath();
-            if (requestedPath.equals("/")) requestedPath = "/index.html";
+            if (requestedPath.equals("/")) {
+                requestedPath = "/index.html";
+            }
 
             Path filePath = Path.of(rootDir, requestedPath);
             if (!Files.exists(filePath)) {
