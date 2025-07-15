@@ -34,4 +34,21 @@ public class UrlService {
     private String generateShortCode() {
         return UUID.randomUUID().toString().substring(0, 6); // Short random code
     }
+
+    public String getOriginalUrl(String code) {
+    try (Connection conn = DbUtil.getConnection()) {
+        String sql = "SELECT original_url FROM urls WHERE short_code = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, code);
+            var rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getString("original_url");
+            }
+        }
+    } catch (SQLException e) {
+        throw new RuntimeException("Error retrieving original URL", e);
+    }
+
+    return null; // not found
+}
 }
